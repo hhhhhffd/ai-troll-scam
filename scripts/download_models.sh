@@ -7,7 +7,9 @@ cd "$(dirname "$0")/.."
 
 LLM_MODEL="${LLM_MODEL:-qwen3:4b}"
 WHISPER_MODEL="${WHISPER_MODEL:-small}"
-PIPER_VOICE="${PIPER_VOICE:-ru_RU-irina-medium}"
+# Personas pick their voice from this set (see bot/personas/*.md).
+PIPER_VOICES="${PIPER_VOICES:-ru_RU-irina-medium ru_RU-dmitri-medium ru_RU-ruslan-medium ru_RU-denis-medium}"
+MODELS_HOST_DIR="${MODELS_HOST_DIR:-./models}"
 
 fetch() {
   local url="$1" dest="$2"
@@ -17,7 +19,7 @@ fetch() {
   fi
   echo "  get  $dest"
   mkdir -p "$(dirname "$dest")"
-  curl -fL --retry 3 -o "$dest.part" "$url"
+  curl -fsSL --retry 3 -o "$dest.part" "$url"
   mv "$dest.part" "$dest"
 }
 
@@ -29,15 +31,17 @@ docker compose exec -T llm ollama pull "$LLM_MODEL"
 echo "==> Whisper: faster-whisper-$WHISPER_MODEL"
 hf="https://huggingface.co/Systran/faster-whisper-$WHISPER_MODEL/resolve/main"
 for f in config.json model.bin tokenizer.json vocabulary.txt; do
-  fetch "$hf/$f" "models/whisper/faster-whisper-$WHISPER_MODEL/$f"
+  fetch "$hf/$f" "$MODELS_HOST_DIR/whisper/faster-whisper-$WHISPER_MODEL/$f"
 done
 
-echo "==> Piper voice: $PIPER_VOICE"
-# Voice id format: <lang>_<REGION>-<name>-<quality>, e.g. ru_RU-irina-medium
-IFS=- read -r locale name quality <<<"$PIPER_VOICE"
-lang="${locale%%_*}"
-piper="https://huggingface.co/rhasspy/piper-voices/resolve/main/$lang/$locale/$name/$quality"
-fetch "$piper/$PIPER_VOICE.onnx" "models/piper/$PIPER_VOICE.onnx"
-fetch "$piper/$PIPER_VOICE.onnx.json" "models/piper/$PIPER_VOICE.onnx.json"
+for voice in $PIPER_VOICES; do
+  echo "==> Piper voice: $voice"
+  # Voice id format: <lang>_<REGION>-<name>-<quality>, e.g. ru_RU-irina-medium
+  IFS=- read -r locale name quality <<<"$voice"
+  lang="${locale%%_*}"
+  piper="https://huggingface.co/rhasspy/piper-voices/resolve/main/$lang/$locale/$name/$quality"
+  fetch "$piper/$voice.onnx" "$MODELS_HOST_DIR/piper/$voice.onnx"
+  fetch "$piper/$voice.onnx.json" "$MODELS_HOST_DIR/piper/$voice.onnx.json"
+done
 
 echo "==> Done"

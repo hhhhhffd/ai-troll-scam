@@ -7,7 +7,7 @@ services:
       OLLAMA_NUM_PARALLEL: "1"
       OLLAMA_MAX_LOADED_MODELS: "1"
     volumes:
-      - ./models/ollama:/root/.ollama
+      - ${OLLAMA_HOST_DIR:-./models/ollama}:/root/.ollama
     gpus: all
     healthcheck:
       test: ["CMD", "ollama", "list"]
@@ -23,7 +23,7 @@ services:
       LLM_BASE_URL: http://llm:11434/v1
       MODELS_DIR: /models
     volumes:
-      - ./models:/models
+      - ${MODELS_HOST_DIR:-./models}:/models
     gpus: all
     depends_on:
       llm:
