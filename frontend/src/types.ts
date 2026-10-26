@@ -5,10 +5,17 @@ export interface Persona {
   description: string
 }
 
+export interface Engine {
+  id: string
+  name: string
+  available: boolean
+}
+
 export type ServerMessage =
   | { type: 'ready'; sampleRate: number; persona: string }
   | { type: 'busy' }
   | { type: 'unauthorized' }
+  | { type: 'error'; message: string }
   | { type: 'transcript'; role: 'user'; text: string }
   | { type: 'bot_text'; text: string }
   | { type: 'state'; state: 'speaking' | 'listening' }
@@ -21,5 +28,6 @@ export interface CallRecord {
   durationSec: number
   personaId: string
   personaName: string
+  engine?: string
   date: string
 }

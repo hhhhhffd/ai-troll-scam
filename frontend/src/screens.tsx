@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import type { CallRecord, EndReason, Persona } from './types'
+import type { CallRecord, Engine, EndReason, Persona } from './types'
 import type { Line } from './transcript'
 
 function mmss(totalSec: number): string {
@@ -40,6 +40,9 @@ function Timer({ startedAt }: { startedAt: number | null }) {
 }
 
 interface IdleProps {
+  engines: Engine[]
+  engineId: string
+  onEngine(id: string): void
   personas: Persona[]
   personaId: string
   onPersona(id: string): void
@@ -62,6 +65,23 @@ export function IdleScreen(p: IdleProps) {
       {p.personasError && (
         <p className="note">Список собеседников не загрузился, доступна только бабушка по умолчанию.</p>
       )}
+
+      <div className="engines" role="radiogroup" aria-label="Голосовой движок">
+        {p.engines.map((e) => (
+          <button
+            key={e.id}
+            type="button"
+            role="radio"
+            aria-checked={e.id === p.engineId}
+            disabled={!e.available}
+            className="engine"
+            onClick={() => p.onEngine(e.id)}
+          >
+            <strong>{e.name}</strong>
+            {!e.available && <small>нужен GEMINI_API_KEY в .env</small>}
+          </button>
+        ))}
+      </div>
 
       <div className="personas" role="radiogroup" aria-label="Кому звонить">
         {p.personas.map((x) => (
@@ -104,7 +124,10 @@ function Records({ records }: { records: CallRecord[] }) {
               <tr key={`${r.date}-${i}`}>
                 <td className="rank">{i + 1}</td>
                 <td className="dur">{mmss(r.durationSec)}</td>
-                <td>{r.personaName}</td>
+                <td>
+                  {r.personaName}
+                  {r.engine && <small className="muted"> · {r.engine === 'gemini' ? 'Gemini' : 'локально'}</small>}
+                </td>
                 <td className="date">{new Date(r.date).toLocaleDateString('ru-RU')}</td>
               </tr>
             ))}
@@ -129,6 +152,7 @@ export function DialingScreen({ persona, onCancel }: { persona: Persona; onCance
 }
 
 interface CallProps {
+  engineName?: string
   persona: Persona
   startedAt: number | null
   speaking: boolean
@@ -154,6 +178,7 @@ export function CallScreen(p: CallProps) {
           <div className={`status${p.speaking ? ' on' : ''}`}>
             {p.speaking ? 'говорит' : 'слушает'}
           </div>
+          {p.engineName && <small className="engine-tag">{p.engineName}</small>}
         </div>
       </div>
 

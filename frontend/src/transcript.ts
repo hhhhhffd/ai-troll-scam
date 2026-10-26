@@ -23,11 +23,14 @@ export function transcriptReducer(s: TranscriptState, a: TranscriptAction): Tran
   switch (a.type) {
     case 'reset':
       return emptyTranscript
-    case 'user':
-      return {
-        lines: [...s.lines, { id: s.lines.length, role: 'user', text: a.text }],
-        openBotId: null,
-      }
+    case 'user': {
+      const line: Line = { id: s.lines.length, role: 'user', text: a.text }
+      // Gemini transcribes the user's speech after the bot has started answering:
+      // keep the question above the reply that is still being spoken.
+      const at = s.lines.findIndex((l) => l.id === s.openBotId)
+      if (at >= 0) return { ...s, lines: [...s.lines.slice(0, at), line, ...s.lines.slice(at)] }
+      return { lines: [...s.lines, line], openBotId: null }
+    }
     case 'bot_text': {
       if (s.openBotId !== null) {
         return {

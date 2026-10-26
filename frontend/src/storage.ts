@@ -2,6 +2,7 @@ import type { CallRecord } from './types'
 
 const KEY_STORAGE = 'troll.key'
 const RECORDS_STORAGE = 'troll.records'
+const ENGINE_STORAGE = 'troll.engine'
 const MAX_RECORDS = 10
 
 export function resolveKey(): string {
@@ -45,4 +46,20 @@ export function saveRecord(record: CallRecord): CallRecord[] {
     // storage unavailable: records live only for this page session
   }
   return records
+}
+
+export function loadEngine(): string | null {
+  try {
+    return localStorage.getItem(ENGINE_STORAGE)
+  } catch {
+    return null
+  }
+}
+
+export function saveEngine(id: string): void {
+  try {
+    localStorage.setItem(ENGINE_STORAGE, id)
+  } catch {
+    // storage unavailable: choice lives only for this page session
+  }
 }

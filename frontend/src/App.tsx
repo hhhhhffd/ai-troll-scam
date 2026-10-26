@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react'
 import { CallSession, MicError } from './call'
-import { loadRecords, resolveKey, saveRecord } from './storage'
+import { loadEngine, loadRecords, resolveKey, saveEngine, saveRecord } from './storage'
 import { emptyTranscript, transcriptReducer } from './transcript'
-import type { CallRecord, EndReason, Persona, ServerMessage } from './types'
+import type { CallRecord, Engine, EndReason, Persona, ServerMessage } from './types'
 import { CallScreen, DialingScreen, EndedScreen, IdleScreen, MessageScreen } from './screens'
 
 const FALLBACK_PERSONAS: Persona[] = [
@@ -14,6 +14,10 @@ const FALLBACK_PERSONAS: Persona[] = [
   },
 ]
 
+const FALLBACK_ENGINES: Engine[] = [
+  { id: 'local', name: 'Локально (Whisper + Qwen + Piper)', available: true },
+]
+
 type Phase =
   | { name: 'idle' }
   | { name: 'dialing' }
@@ -21,11 +25,12 @@ type Phase =
   | { name: 'busy' }
   | { name: 'unauthorized' }
   | { name: 'error'; text: string }
+  | { name: 'server_error'; text: string }
   | { name: 'ended'; reason: EndReason; durationSec: number }
 
-function buildUrl(key: string, personaId: string): string {
+function buildUrl(key: string, personaId: string, engineId: string): string {
   const scheme = location.protocol === 'https:' ? 'wss' : 'ws'
-  const q = new URLSearchParams({ persona: personaId })
+  const q = new URLSearchParams({ persona: personaId, engine: engineId })
   if (key) q.set('key', key)
   return `${scheme}://${location.host}/ws/call?${q}`
 }
@@ -35,6 +40,8 @@ export function App() {
   const [personas, setPersonas] = useState<Persona[]>(FALLBACK_PERSONAS)
   const [personasError, setPersonasError] = useState(false)
   const [personaId, setPersonaId] = useState(FALLBACK_PERSONAS[0].id)
+  const [engines, setEngines] = useState<Engine[]>(FALLBACK_ENGINES)
+  const [engineId, setEngineId] = useState(() => loadEngine() ?? FALLBACK_ENGINES[0].id)
   const [records, setRecords] = useState<CallRecord[]>(() => loadRecords())
   const [transcript, dispatch] = useReducer(transcriptReducer, emptyTranscript)
   const [speaking, setSpeaking] = useState(false)
@@ -44,6 +51,7 @@ export function App() {
   const sessionRef = useRef<CallSession | null>(null)
   const startedAtRef = useRef<number | null>(null)
   const personaRef = useRef<Persona>(FALLBACK_PERSONAS[0])
+  const engineRef = useRef(engineId)
   const key = useRef(resolveKey()).current
 
   useEffect(() => {
@@ -63,6 +71,30 @@ export function App() {
       })
     return () => ctrl.abort()
   }, [])
+
+  useEffect(() => {
+    const ctrl = new AbortController()
+    fetch('/api/engines', { signal: ctrl.signal })
+      .then((r) => {
+        if (!r.ok) throw new Error(String(r.status))
+        return r.json() as Promise<Engine[]>
+      })
+      .then((list) => {
+        if (!Array.isArray(list) || list.length === 0) throw new Error('empty')
+        setEngines(list)
+        // A saved engine that is gone or unavailable (e.g. the key was removed) falls back.
+        setEngineId((cur) => (list.some((e) => e.id === cur && e.available) ? cur : 'local'))
+      })
+      .catch(() => {
+        // keep the local-only fallback
+      })
+    return () => ctrl.abort()
+  }, [])
+
+  const pickEngine = (id: string) => {
+    setEngineId(id)
+    saveEngine(id)
+  }
 
   const teardown = useCallback(() => {
     sessionRef.current?.dispose()
@@ -87,6 +119,7 @@ export function App() {
             durationSec,
             personaId: p.id,
             personaName: p.name,
+            engine: engineRef.current,
             date: new Date().toISOString(),
           }),
         )
@@ -99,6 +132,7 @@ export function App() {
   const startCall = () => {
     const persona = personas.find((p) => p.id === personaId) ?? personas[0]
     personaRef.current = persona
+    engineRef.current = engineId
     dispatch({ type: 'reset' })
     setPhase({ name: 'dialing' })
 
@@ -122,6 +156,10 @@ export function App() {
             teardown()
             setPhase({ name: 'unauthorized' })
             break
+          case 'error':
+            teardown()
+            setPhase({ name: 'server_error', text: msg.message })
+            break
           case 'transcript':
             dispatch({ type: 'user', text: msg.text })
             break
@@ -141,7 +179,13 @@ export function App() {
         }
       },
       onClose: (code) => {
-        if (code === 4409) {
+        if (code === 4400) {
+          // The `error` message already set the phase; this covers a lost message.
+          teardown()
+          setPhase((p) =>
+            p.name === 'server_error' ? p : { name: 'server_error', text: 'Сервер отклонил звонок.' },
+          )
+        } else if (code === 4409) {
           teardown()
           setPhase({ name: 'busy' })
         } else if (code === 4401) {
@@ -161,7 +205,7 @@ export function App() {
         await session.prepare()
         await session.playRing()
         if (sessionRef.current !== session) return
-        session.connect(buildUrl(key, persona.id))
+        session.connect(buildUrl(key, persona.id, engineId))
       } catch (e) {
         if (sessionRef.current !== session) return
         teardown()
@@ -187,6 +231,9 @@ export function App() {
         <IdleScreen
           personas={personas}
           personaId={personaId}
+          engines={engines}
+          engineId={engineId}
+          onEngine={pickEngine}
           onPersona={setPersonaId}
           personasError={personasError}
           records={records}
@@ -200,6 +247,7 @@ export function App() {
       {phase.name === 'call' && (
         <CallScreen
           persona={persona}
+          engineName={engines.find((e) => e.id === engineRef.current)?.name}
           startedAt={startedAt}
           speaking={speaking}
           level={level}
@@ -223,6 +271,15 @@ export function App() {
           icon="🔑"
           title="Нет доступа"
           text="Откройте ссылку с правильным ключом: адрес сайта должен заканчиваться на ?key=…"
+          action="Назад"
+          onAction={backToIdle}
+        />
+      )}
+      {phase.name === 'server_error' && (
+        <MessageScreen
+          icon="⚠️"
+          title="Звонок отклонён"
+          text={phase.text}
           action="Назад"
           onAction={backToIdle}
         />

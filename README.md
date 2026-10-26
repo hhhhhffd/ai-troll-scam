@@ -22,7 +22,18 @@
 | 🕵️ | Параноик | denis, чуть ниже | «разговор записывается, фамилию по буквам» |
 | 👴 | Дед Михалыч | ruslan, медленнее, ниже, дрожание | глуховат, путает банк с военкоматом |
 
-Каждый персонаж описан в своём файле `bot/personas/*.md`. Во frontmatter задаются имя, приветствие, `history` (сколько последних реплик помнит), голос Piper и эффекты: `length_scale`, `pitch_cents`, `tremolo_hz` и `tremolo_depth`. После текста frontmatter идёт системный промпт. Персонажи вшиваются в образ, поэтому после правки нужен `docker compose up -d --build bot`.
+Каждый персонаж описан в своём файле `bot/personas/*.md`. Во frontmatter задаются имя, приветствие, `history` (сколько последних реплик помнит), голос Piper и эффекты: `length_scale`, `pitch_cents`, `tremolo_hz` и `tremolo_depth`, а для Gemini Live ещё `gemini_voice`. После текста frontmatter идёт системный промпт. Персонажи вшиваются в образ, поэтому после правки нужен `docker compose up -d --build bot`.
+
+## Движки
+
+Движок выбирается на сайте перед звонком (запоминается в браузере).
+
+| Движок | Что внутри |
+|---|---|
+| Локально | Silero VAD → faster-whisper → Ollama qwen3:4b-instruct → Piper, всё на своей видеокарте |
+| Gemini Live | один speech-to-speech сервис Pipecat `GeminiLiveLLMService` (модель `GEMINI_MODEL`, по умолчанию `gemini-3.8-live`), выход 24 кГц |
+
+Gemini включается ключом `GEMINI_API_KEY` в `.env` (ключ из [AI Studio](https://aistudio.google.com/apikey)). Без ключа пункт в интерфейсе отключён. Звук звонка при этом уходит в Google. Системный промпт и приветствие берутся из персонажа, голос из `gemini_voice:` во frontmatter (прегенерированные голоса Gemini: Gacrux, Algenib, Iapetus, Enceladus). `history` для Gemini не используется: сессию и контекст ведёт сам Gemini. Бот говорит первым: приветствие передаётся модели как «скажи дословно». Транскрипты (`transcript`, `bot_text`) берутся из встроенной транскрипции Gemini, барж-ин делает серверный VAD Gemini (`interrupted`), а Silero даёт локальные события для таймаута тишины.
 
 ## Запуск
 
