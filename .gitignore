@@ -1,0 +1,9 @@
+.env
+models/*
+!models/.gitkeep
+node_modules/
+dist/
+__pycache__/
+*.pyc
+.venv/
+.serena/
