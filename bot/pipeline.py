@@ -31,7 +31,7 @@ from services.shared_models import SharedPiperTTSService, SharedWhisperSTTServic
 
 MODELS_DIR = Path(os.environ.get("MODELS_DIR", "/models"))
 LLM_BASE_URL = os.environ.get("LLM_BASE_URL", "http://llm:11434/v1")
-LLM_MODEL = os.environ.get("LLM_MODEL", "qwen3:4b")
+LLM_MODEL = os.environ.get("LLM_MODEL", "qwen3:4b-instruct")
 LLM_MAX_TOKENS = int(os.environ.get("LLM_MAX_TOKENS", "100"))
 LLM_TEMPERATURE = float(os.environ.get("LLM_TEMPERATURE", "0.8"))
 LLM_HISTORY_MESSAGES = int(os.environ.get("LLM_HISTORY_MESSAGES", "16"))

@@ -5,7 +5,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 [ -f .env ] && set -a && . ./.env && set +a
 
-LLM_MODEL="${LLM_MODEL:-qwen3:4b}"
+LLM_MODEL="${LLM_MODEL:-qwen3:4b-instruct}"
 WHISPER_MODEL="${WHISPER_MODEL:-small}"
 # Personas pick their voice from this set (see bot/personas/*.md).
 PIPER_VOICES="${PIPER_VOICES:-ru_RU-irina-medium ru_RU-dmitri-medium ru_RU-ruslan-medium ru_RU-denis-medium}"
