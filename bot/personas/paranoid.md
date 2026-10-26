@@ -5,6 +5,7 @@ description: Записывает разговор, просит фамилию 
 greeting: Алло. Сразу предупреждаю, этот разговор записывается. Кто говорит?
 order: 3
 voice: ru_RU-denis-medium
+gemini_voice: Enceladus
 length_scale: 1.05
 pitch_cents: -50
 tremolo_hz: 0

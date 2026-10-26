@@ -5,6 +5,7 @@ description: Требует табельный номер, IP офиса и но
 greeting: Да, слушаю. Представьтесь, пожалуйста, полностью.
 order: 2
 voice: ru_RU-dmitri-medium
+gemini_voice: Iapetus
 length_scale: 0.95
 pitch_cents: 0
 tremolo_hz: 0

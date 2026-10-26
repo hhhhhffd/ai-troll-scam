@@ -65,19 +65,37 @@ async def health():
     return {"status": "ok", "busy": busy}
 
 
+@app.get("/api/engines")
+async def list_engines():
+    return [
+        {"id": "local", "name": "Локально (Whisper + Qwen + Piper)", "available": True},
+        {"id": "gemini", "name": "Gemini Live", "available": bool(pipeline.GEMINI_API_KEY)},
+    ]
+
+
 @app.get("/api/personas")
 async def list_personas():
     return [p.public() for p in personas.values()]
 
 
 @app.websocket("/ws/call")
-async def ws_call(websocket: WebSocket, key: str = "", persona: str = DEFAULT_PERSONA):
+async def ws_call(
+    websocket: WebSocket, key: str = "", persona: str = DEFAULT_PERSONA, engine: str = "local"
+):
     global busy
     await websocket.accept()
 
     if DEMO_KEY and not hmac.compare_digest(key.encode(), DEMO_KEY.encode()):
         await websocket.send_json({"type": "unauthorized"})
         await websocket.close(code=4401)
+        return
+
+    # Unknown engine falls back to local, like an unknown persona.
+    if engine != "gemini":
+        engine = "local"
+    if engine == "gemini" and not pipeline.GEMINI_API_KEY:
+        await websocket.send_json({"type": "error", "message": "Gemini недоступен: на сервере не задан GEMINI_API_KEY"})
+        await websocket.close(code=4400)
         return
 
     if busy:
@@ -89,8 +107,8 @@ async def ws_call(websocket: WebSocket, key: str = "", persona: str = DEFAULT_PE
     try:
         # Unknown persona falls back to the default one rather than failing the call.
         selected = personas.get(persona) or personas[DEFAULT_PERSONA]
-        logger.info(f"Call started, persona={selected.id}")
-        await pipeline.run_call(websocket, selected)
+        logger.info(f"Call started, persona={selected.id}, engine={engine}")
+        await pipeline.run_call(websocket, selected, engine)
     except Exception:
         logger.exception("Call failed")
     finally:

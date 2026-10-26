@@ -6,6 +6,7 @@ greeting: Ну шо, алло. Кто там звонит, говори гром
 order: 4
 history: 6
 voice: ru_RU-ruslan-medium
+gemini_voice: Algenib
 length_scale: 1.3
 pitch_cents: -150
 tremolo_hz: 5

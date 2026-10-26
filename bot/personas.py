@@ -5,6 +5,7 @@ from pathlib import Path
 
 PERSONAS_DIR = Path(__file__).parent / "personas"
 DEFAULT_PERSONA = "granny"
+DEFAULT_GEMINI_VOICE = "Kore"
 
 
 @dataclass(frozen=True)
@@ -17,6 +18,7 @@ class Persona:
     order: int
     history: int | None
     voice: str
+    gemini_voice: str
     length_scale: float
     pitch_cents: float
     tremolo_hz: float
@@ -48,6 +50,7 @@ def _parse(path: Path) -> Persona:
         order=int(meta["order"]),
         history=int(meta["history"]) if "history" in meta else None,
         voice=meta["voice"],
+        gemini_voice=meta.get("gemini_voice", DEFAULT_GEMINI_VOICE),
         length_scale=float(meta.get("length_scale", 1.0)),
         pitch_cents=float(meta.get("pitch_cents", 0)),
         tremolo_hz=float(meta.get("tremolo_hz", 0)),

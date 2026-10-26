@@ -6,6 +6,7 @@ greeting: Алло? Алло, кто это?
 order: 1
 history: 4
 voice: ru_RU-irina-medium
+gemini_voice: Gacrux
 length_scale: 1.25
 pitch_cents: -150
 tremolo_hz: 5

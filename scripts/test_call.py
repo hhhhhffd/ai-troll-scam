@@ -5,7 +5,7 @@ Generate test utterances (16 kHz WAVs in the bot container's /tmp/u0.wav, /tmp/u
   docker compose exec -T bot python - "Здравствуйте, это Каспи банк." "Назовите код из SMS." < scripts/make_test_speech.py
 
 Usage: test_call.py UTTERANCE.wav [UTTERANCE2.wav ...] [--url ws://localhost:8000/ws/call]
-           [--persona granny] [--key KEY] [--barge-in] [--save BOT.wav]
+           [--persona granny] [--engine local|gemini] [--key KEY] [--barge-in] [--save BOT.wav]
 Runs anywhere with `websockets`; e.g. inside the bot container:
   docker compose exec -T bot python - /tmp/u1.wav < scripts/test_call.py
 Each WAV is one turn: it is sent after the bot finished the previous reply.
@@ -49,11 +49,12 @@ async def main() -> None:
     p.add_argument("wavs", nargs="+")
     p.add_argument("--url", default="ws://localhost:8000/ws/call")
     p.add_argument("--persona", default="granny")
+    p.add_argument("--engine", default="local")
     p.add_argument("--key", default="")
     p.add_argument("--barge-in", action="store_true")
     p.add_argument("--save", help="write everything the bot said to this WAV file")
     args = p.parse_args()
-    url = f"{args.url}?persona={args.persona}&key={args.key}"
+    url = f"{args.url}?persona={args.persona}&engine={args.engine}&key={args.key}"
 
     async with websockets.connect(url) as ws:
         bot_pcm = bytearray()
@@ -94,7 +95,7 @@ async def main() -> None:
             except websockets.ConnectionClosed as e:
                 print("second connection closed:", e.rcvd.code if e.rcvd else None)
 
-        await wait_bot_done(5)  # greeting
+        await wait_bot_done(15)  # greeting
         pcms = [read_pcm(w) for w in args.wavs]
         for i, pcm in enumerate(pcms):
             print(f"-> turn {i + 1}: sending {len(pcm) / 32000:.1f}s of speech")
