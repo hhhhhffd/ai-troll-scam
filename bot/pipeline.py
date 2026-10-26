@@ -151,8 +151,7 @@ async def run_call(websocket: WebSocket, persona: Persona) -> None:
 
     @transport.event_handler("on_client_connected")
     async def on_client_connected(transport, client):
-        # The LLM must know what it already said, so the greeting goes into the context too.
-        context.add_message({"role": "assistant", "content": persona.greeting})
+        # The assistant aggregator commits TTSSpeakFrame text to the context once it is spoken.
         await worker.queue_frame(TTSSpeakFrame(persona.greeting))
 
     @transport.event_handler("on_client_disconnected")
