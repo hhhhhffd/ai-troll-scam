@@ -17,6 +17,7 @@ export class CallSession {
   private stream: MediaStream | null = null
   private micNode: AudioWorkletNode | null = null
   private micSource: MediaStreamAudioSourceNode | null = null
+  private micFilter: BiquadFilterNode | null = null
   private ws: WebSocket | null = null
   private sources = new Set<AudioBufferSourceNode>()
   private cursor = 0
@@ -48,7 +49,12 @@ export class CallSession {
           : 'Нет доступа к микрофону. Разрешите его в настройках браузера и попробуйте ещё раз.',
       )
     }
-    if (this.disposed) return
+    if (this.disposed) {
+      this.stream.getTracks().forEach((t) => t.stop())
+      return
+    }
+    // getUserMedia may suspend the context on iOS; without this the ring tone never ends.
+    await this.ctx.resume()
     await this.ctx.audioWorklet.addModule(`${import.meta.env.BASE_URL}mic-worklet.js`)
     if (this.disposed) return
     this.micSource = this.ctx.createMediaStreamSource(this.stream)
@@ -65,7 +71,9 @@ export class CallSession {
         this.handlers.onLevel(e.data.level)
       }
     }
-    this.micSource.connect(this.micNode)
+    // Anti-aliasing for the worklet's decimation to 16 kHz (Nyquist 8 kHz).
+    this.micFilter = new BiquadFilterNode(this.ctx, { type: 'lowpass', frequency: 7000 })
+    this.micSource.connect(this.micFilter).connect(this.micNode)
   }
 
   /** Two short 425 Hz beeps (RU/KZ ringback). Resolves when finished. */
@@ -90,11 +98,17 @@ export class CallSession {
     osc.start(t0)
     osc.stop(end + 0.05)
     return new Promise((resolve) => {
-      osc.onended = () => {
+      let done = false
+      const finish = () => {
+        if (done) return
+        done = true
         osc.disconnect()
         gain.disconnect()
         resolve()
       }
+      osc.onended = finish
+      // Fallback if the AudioContext stays suspended and onended never fires.
+      setTimeout(finish, (end - ctx.currentTime + 0.5) * 1000)
     })
   }
 
@@ -188,6 +202,7 @@ export class CallSession {
     }
     if (this.micNode) this.micNode.port.onmessage = null
     this.micSource?.disconnect()
+    this.micFilter?.disconnect()
     this.micNode?.disconnect()
     this.stream?.getTracks().forEach((t) => t.stop())
     void this.ctx.close()

@@ -20,6 +20,9 @@ WHISPER_MODEL = os.environ.get("WHISPER_MODEL", "small")
 logger.remove()
 logger.add(sys.stderr, level=os.environ.get("LOG_LEVEL", "INFO"))
 
+if not DEMO_KEY:
+    logger.warning("DEMO_KEY is empty: anyone who can reach the site can place calls")
+
 personas = load_personas()
 # Only one call at a time (single GPU). No await between check and set, so this is race-free.
 busy = False

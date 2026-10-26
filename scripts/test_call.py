@@ -1,11 +1,8 @@
 #!/usr/bin/env python3
 """Dev test client for /ws/call: streams a 16 kHz mono PCM16 WAV in real time and prints replies.
 
-Generate utterances with the bot's own Piper voice (inside the container):
-  docker compose exec -T bot python -c "import wave,sys;from piper import PiperVoice;\
-v=PiperVoice.load('/models/piper/ru_RU-irina-medium.onnx');\
-w=wave.open('/tmp/u.wav','wb');v.synthesize_wav('Здравствуйте, это служба безопасности Каспи банка. Назовите, пожалуйста, код из SMS.',w)"
-  docker compose cp bot:/tmp/u.wav /tmp/u.wav && ffmpeg -i /tmp/u.wav -ar 16000 -ac 1 /tmp/u16.wav
+Generate test utterances (16 kHz WAVs in the bot container's /tmp/u0.wav, /tmp/u1.wav, ...):
+  docker compose exec -T bot python - "Здравствуйте, это Каспи банк." "Назовите код из SMS." < scripts/make_test_speech.py
 
 Usage: test_call.py UTTERANCE.wav [UTTERANCE2.wav ...] [--url ws://localhost:8000/ws/call]
            [--persona granny] [--key KEY] [--barge-in] [--save BOT.wav]

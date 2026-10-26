@@ -19,4 +19,5 @@ COPY . .
 # Ubuntu 24.04 ships a default "ubuntu" user (uid 1000); the models volume is only read.
 USER ubuntu
 EXPOSE 8000
-CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"]
+# No access log: the WS URL carries DEMO_KEY in the query string.
+CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000", "--no-access-log"]

@@ -67,4 +67,9 @@ class UiEventsProcessor(FrameProcessor):
             await self._send({"type": "state", "state": "listening"})
 
     async def _send(self, message: dict):
-        await self.push_frame(OutputTransportMessageFrame(message=message))
+        # State must bypass the audio queue (it would arrive after the phrase); text stays in
+        # sync with the audio it belongs to.
+        frame_cls = (
+            OutputTransportMessageUrgentFrame if message["type"] == "state" else OutputTransportMessageFrame
+        )
+        await self.push_frame(frame_cls(message=message))
