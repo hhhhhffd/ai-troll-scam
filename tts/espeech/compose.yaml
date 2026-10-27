@@ -1,0 +1,17 @@
+services:
+  tts-espeech:
+    build: .
+    profiles: ["espeech"]
+    restart: unless-stopped
+    gpus: all
+    environment:
+      # Flow-matching steps: fewer = faster first audio, more = cleaner voice.
+      NFE_STEP: ${ESPEECH_NFE_STEP:-16}
+    volumes:
+      - ${MODELS_HOST_DIR:-./models}/espeech:/models/espeech
+      - ${MODELS_HOST_DIR:-./models}/voices:/voices:ro
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:9000/status', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 10

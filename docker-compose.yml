@@ -1,3 +1,7 @@
+# Local TTS sidecars (tts/CONTRACT.md), off unless their profile is enabled (COMPOSE_PROFILES=espeech ...).
+include:
+  - tts/espeech/compose.yaml
+
 services:
   llm:
     # The host's own Ollama install (Arch, /usr/local) mounted into a tiny base image:
