@@ -56,10 +56,11 @@ async def main() -> None:
     args = p.parse_args()
     url = f"{args.url}?persona={args.persona}&engine={args.engine}&key={args.key}"
 
-    async with websockets.connect(url) as ws:
+    # No client pings: the server does not read the socket while it swaps GPU models before `ready`.
+    async with websockets.connect(url, ping_interval=None) as ws:
         bot_pcm = bytearray()
         sample_rate = 22050  # replaced by ready.sampleRate
-        state = {"speech_end": None, "audio_bytes": 0, "last_audio": time.monotonic()}
+        state = {"speech_end": None, "audio_bytes": 0, "last_audio": time.monotonic(), "ready": False}
 
         async def reader() -> None:
             nonlocal sample_rate
@@ -76,6 +77,7 @@ async def main() -> None:
                     print("<-", msg)
                     if '"ready"' in msg:
                         sample_rate = json.loads(msg)["sampleRate"]
+                        state["ready"] = True
 
         reader_task = asyncio.create_task(reader())
 
@@ -87,8 +89,16 @@ async def main() -> None:
             while time.monotonic() - state["last_audio"] < 1.5:
                 await asyncio.sleep(0.2)
 
-        # Second concurrent connection must be refused while this call is active.
-        async with websockets.connect(f"{args.url}?key={args.key}") as second:
+        # Loading another engine's models (e.g. a TTS sidecar) can take minutes.
+        start = time.monotonic()
+        while not state["ready"] and time.monotonic() - start < 600:
+            await asyncio.sleep(0.2)
+        print(f"ready after {time.monotonic() - start:.1f}s")
+
+        # Second concurrent connection must be refused while this call is active. Same engine, so
+        # that if it ever got through it would not swap GPU models under the test.
+        second_url = f"{args.url}?key={args.key}&engine={args.engine}"
+        async with websockets.connect(second_url, ping_interval=None) as second:
             print("second connection ->", await second.recv())
             try:
                 await second.recv()
