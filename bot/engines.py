@@ -18,13 +18,19 @@ FISH_API_KEY = os.environ.get("FISH_API_KEY", "")
 FISH_REFERENCE_ID = os.environ.get("FISH_REFERENCE_ID", "")
 
 # auto = Deepgram Flux if its key is set, else Groq Whisper, else local Whisper on the GPU.
+# gigaam = GigaAM-v3 sidecar (stt/gigaam, profile gigaam): best Russian of the local options.
 CASCADE_STT = os.environ.get("CASCADE_STT", "auto")
+# STT of the local engine: whisper | gigaam
+LOCAL_STT = os.environ.get("LOCAL_STT", "whisper")
 CLOUD_LLM_PROVIDER = os.environ.get("CLOUD_LLM_PROVIDER", "gemini")
 
+# GPU sidecars (tts/CONTRACT.md control endpoints), by GPU resource name.
 SIDECARS = {
     "higgs": os.environ.get("HIGGS_URL", "http://tts-higgs:9000"),
     "espeech": os.environ.get("ESPEECH_URL", "http://tts-espeech:9000"),
+    "gigaam": os.environ.get("GIGAAM_URL", "http://stt-gigaam:9000"),
 }
+LOCAL_STTS = {"whisper", "gigaam"}  # STT options that hold a GPU resource of the same name
 
 
 @dataclass(frozen=True)
@@ -59,12 +65,12 @@ def cascade_stt() -> str:
 def gpu_needs(engine: Engine) -> frozenset[str]:
     """GPU resources (see services/gpu.py) that must be resident during a call on `engine`."""
     if engine.id == "local":
-        return frozenset({"whisper", "ollama"})
+        return frozenset({LOCAL_STT, "ollama"})
     if engine.tts not in CASCADE_TTS:
         return frozenset()
     needs = {engine.tts} if engine.tts in SIDECARS else set()
-    if cascade_stt() == "whisper":
-        needs.add("whisper")
+    if cascade_stt() in LOCAL_STTS:
+        needs.add(cascade_stt())
     return frozenset(needs)
 
 
@@ -82,7 +88,7 @@ def _stt_problem(full_cloud: bool) -> str | None:
         return None if DEEPGRAM_API_KEY else "нужен DEEPGRAM_API_KEY"
     if stt == "groq":
         return None if GROQ_API_KEY else "нужен GROQ_API_KEY"
-    if stt == "whisper":
+    if stt in LOCAL_STTS:
         return "нужен DEEPGRAM_API_KEY или GROQ_API_KEY" if full_cloud else None
     return f"неизвестный CASCADE_STT={stt}"
 
@@ -98,6 +104,9 @@ async def _sidecar_up(url: str) -> bool:
 
 async def problem(engine: Engine) -> str | None:
     """Why `engine` can't take a call right now (shown in the UI), or None if it can."""
+    stt = LOCAL_STT if engine.id == "local" else cascade_stt()
+    if stt == "gigaam" and engine.tts in CASCADE_TTS | {"piper"} and not await _sidecar_up(SIDECARS["gigaam"]):
+        return "не запущен контейнер stt-gigaam (профиль gigaam)"
     if engine.id == "local":
         return None
     if engine.id == "gemini":

@@ -1,0 +1,13 @@
+services:
+  stt-gigaam:
+    build: .
+    profiles: ["gigaam"]
+    restart: unless-stopped
+    gpus: all
+    volumes:
+      - ${MODELS_HOST_DIR:-./models}/gigaam:/models/gigaam
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:9000/status', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 10

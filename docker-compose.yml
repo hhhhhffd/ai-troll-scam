@@ -1,6 +1,7 @@
-# Local TTS sidecars (tts/CONTRACT.md), off unless their profile is enabled (COMPOSE_PROFILES=espeech ...).
+# Local GPU sidecars (tts/CONTRACT.md), off unless their profile is enabled (COMPOSE_PROFILES=espeech,gigaam ...).
 include:
   - tts/espeech/compose.yaml
+  - stt/gigaam/compose.yaml
 
 services:
   llm:

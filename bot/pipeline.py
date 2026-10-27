@@ -41,6 +41,7 @@ import engines
 from engines import Engine
 from personas import Persona
 from services.call_io import INPUT_SAMPLE_RATE, RawPcmSerializer, UiEventsProcessor
+from services.gigaam_stt import GigaamSTTService
 from services.local_tts import SidecarTTSService
 from services.shared_models import SharedPiperTTSService, SharedWhisperSTTService
 
@@ -98,9 +99,11 @@ async def send_json(websocket: WebSocket, message: dict) -> None:
         logger.warning(f"Could not send {message.get('type')}: {e}")
 
 
-def build_local(persona: Persona):
-    """Cascade engine. Returns (stages between input and UI events, user_agg, assistant_agg, context)."""
-    stt = SharedWhisperSTTService(
+def _local_stt(kind: str):
+    """Segmented STT on this machine's GPU: shared Whisper or the GigaAM sidecar."""
+    if kind == "gigaam":
+        return GigaamSTTService(base_url=engines.SIDECARS["gigaam"])
+    return SharedWhisperSTTService(
         device="cuda",
         compute_type="float16",
         settings=SharedWhisperSTTService.Settings(
@@ -108,6 +111,11 @@ def build_local(persona: Persona):
             language=Language.RU,
         ),
     )
+
+
+def build_local(persona: Persona):
+    """Cascade engine. Returns (stages between input and UI events, user_agg, assistant_agg, context)."""
+    stt = _local_stt(engines.LOCAL_STT)
     llm = OLLamaLLMService(
         base_url=LLM_BASE_URL,
         settings=OLLamaLLMService.Settings(
@@ -195,14 +203,7 @@ def _cascade_stt():
             settings=GroqSTTService.Settings(model=GROQ_STT_MODEL, language=Language.RU),
         )
     else:
-        service = SharedWhisperSTTService(
-            device="cuda",
-            compute_type="float16",
-            settings=SharedWhisperSTTService.Settings(
-                model=str(MODELS_DIR / "whisper" / f"faster-whisper-{os.environ.get('WHISPER_MODEL', 'large-v3-turbo')}"),
-                language=Language.RU,
-            ),
-        )
+        service = _local_stt(stt)
     # Segmented STT: Silero finds the end of speech, like the local engine.
     return service, LLMUserAggregatorParams(
         vad_analyzer=SileroVADAnalyzer(params=VADParams(stop_secs=VAD_STOP_SECS)),
