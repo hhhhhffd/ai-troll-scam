@@ -60,7 +60,15 @@ def _unload() -> None:
 
 def _accent(text: str) -> str:
     # A '+' means the caller already placed stress marks.
-    return text if "+" in text else state["accentizer"].process_all(text)
+    if "+" in text:
+        return text
+    try:
+        return state["accentizer"].process_all(text)
+    except ValueError as e:
+        # RUAccent's homograph ONNX model rejects some inputs (missing token_type_ids); speaking
+        # without stress marks beats dropping the phrase.
+        log.warning("accentizer failed, using plain text: %s", e)
+        return text
 
 
 def _find_ref(voice: str, emotion: str) -> Path | None:
