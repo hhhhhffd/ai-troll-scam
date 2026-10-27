@@ -9,6 +9,7 @@ export interface Engine {
   id: string
   name: string
   available: boolean
+  note?: string
 }
 
 export type ServerMessage =

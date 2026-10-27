@@ -1,5 +1,14 @@
 import { useEffect, useRef, useState } from 'react'
 import type { CallRecord, Engine, EndReason, Persona } from './types'
+
+const ENGINE_LABELS: Record<string, string> = {
+  local: 'локально',
+  gemini: 'Gemini',
+  cloud: 'ElevenLabs',
+  fish: 'Fish',
+  higgs: 'Higgs',
+  espeech: 'ESpeech',
+}
 import type { Line } from './transcript'
 
 function mmss(totalSec: number): string {
@@ -78,7 +87,7 @@ export function IdleScreen(p: IdleProps) {
             onClick={() => p.onEngine(e.id)}
           >
             <strong>{e.name}</strong>
-            {!e.available && <small>нужен GEMINI_API_KEY в .env</small>}
+            {!e.available && <small>{e.note ?? 'недоступен'}</small>}
           </button>
         ))}
       </div>
@@ -126,7 +135,7 @@ function Records({ records }: { records: CallRecord[] }) {
                 <td className="dur">{mmss(r.durationSec)}</td>
                 <td>
                   {r.personaName}
-                  {r.engine && <small className="muted"> · {r.engine === 'gemini' ? 'Gemini' : 'локально'}</small>}
+                  {r.engine && <small className="muted"> · {ENGINE_LABELS[r.engine] ?? r.engine}</small>}
                 </td>
                 <td className="date">{new Date(r.date).toLocaleDateString('ru-RU')}</td>
               </tr>

@@ -1,6 +1,7 @@
 """Wire format of /ws/call (see PROTOCOL.md): raw PCM serializer and a bridge for UI events."""
 
 import json
+import re
 
 from pipecat.frames.frames import (
     BotStartedSpeakingFrame,
@@ -17,6 +18,9 @@ from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 from pipecat.serializers.base_serializer import FrameSerializer
 
 INPUT_SAMPLE_RATE = 16000
+
+# Emotion tags of expressive TTS engines ("[sighs]", "<|emotion:anger|>") are acted, not shown.
+_TAG_RE = re.compile(r"\[[^\]]*\]\s*|<\|[^|]*\|>\s*")
 
 
 class RawPcmSerializer(FrameSerializer):
@@ -60,7 +64,9 @@ class UiEventsProcessor(FrameProcessor):
         await self.push_frame(frame, direction)
 
         if direction == FrameDirection.DOWNSTREAM and isinstance(frame, TTSTextFrame):
-            await self._send({"type": "bot_text", "text": frame.text})
+            text = _TAG_RE.sub("", frame.text)
+            if text:
+                await self._send({"type": "bot_text", "text": text})
         elif isinstance(frame, BotStartedSpeakingFrame):
             await self._send({"type": "state", "state": "speaking"})
         elif isinstance(frame, BotStoppedSpeakingFrame):

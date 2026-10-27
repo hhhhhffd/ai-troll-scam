@@ -21,17 +21,37 @@ from pipecat.services.piper.tts import PiperTTSService
 from pipecat.services.whisper.stt import WhisperSTTService
 
 _whisper_model: WhisperModel | None = None
+_whisper_path: Path | None = None
 _piper_voices: dict[str, PiperVoice] = {}
 
 
 def load_models(whisper_path: Path, piper_dir: Path, voices: set[str]) -> None:
-    global _whisper_model
-    _whisper_model = WhisperModel(str(whisper_path), device="cuda", compute_type="float16")
-    # WhisperSTTService does not expose beam_size; greedy decoding is noticeably faster
-    # and accurate enough for short phone phrases.
-    _whisper_model.transcribe = partial(_whisper_model.transcribe, beam_size=1)
+    """Piper voices are loaded now (CPU); Whisper only when an engine asks for it (GPU)."""
+    global _whisper_path
+    _whisper_path = whisper_path
     for voice in voices:
         _piper_voices[voice] = PiperVoice.load(piper_dir / f"{voice}.onnx")
+
+
+def load_whisper() -> None:
+    global _whisper_model
+    if _whisper_model is not None:
+        return
+    assert _whisper_path is not None, "load_models() was not called"
+    model = WhisperModel(str(_whisper_path), device="cuda", compute_type="float16")
+    # WhisperSTTService does not expose beam_size; greedy decoding is noticeably faster
+    # and accurate enough for short phone phrases.
+    model.transcribe = partial(model.transcribe, beam_size=1)
+    # The first transcription initializes CUDA kernels (seconds); do it now, not on the caller's turn.
+    segments, _ = model.transcribe(np.zeros(16000, dtype=np.float32), language="ru")
+    list(segments)
+    _whisper_model = model
+
+
+def unload_whisper() -> None:
+    """Dropping the last reference frees the CTranslate2 model and its VRAM."""
+    global _whisper_model
+    _whisper_model = None
 
 
 class _CachedPiperVoice:
@@ -44,7 +64,7 @@ class _CachedPiperVoice:
 
 class SharedWhisperSTTService(WhisperSTTService):
     def _load(self):
-        assert _whisper_model is not None, "load_models() was not called"
+        assert _whisper_model is not None, "load_whisper() was not called"
         self._model = _whisper_model
         unsupported = self._unsupported_language()
         if unsupported:
