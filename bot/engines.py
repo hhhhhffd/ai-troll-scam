@@ -44,7 +44,6 @@ ENGINES = [
     Engine("local", "Локально (Whisper + Qwen + Piper)", "piper"),
     Engine("gemini", "Gemini Live", "gemini_live"),
     Engine("cloud", "Облако (ElevenLabs v4)", "elevenlabs"),
-    Engine("fish", "Fish S2 Pro (облако)", "fish"),
     Engine("higgs", "Higgs TTS 3 (своя GPU)", "higgs"),
     Engine("espeech", "ESpeech (своя GPU)", "espeech"),
 ]
