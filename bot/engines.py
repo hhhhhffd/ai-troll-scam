@@ -52,14 +52,20 @@ ENGINES_BY_ID = {e.id: e for e in ENGINES}
 CASCADE_TTS = {"elevenlabs", "fish", "higgs", "espeech"}
 
 
-def cascade_stt() -> str:
-    if CASCADE_STT != "auto":
-        return CASCADE_STT
+def _cloud_stt() -> str | None:
     if DEEPGRAM_API_KEY:
         return "deepgram"
     if GROQ_API_KEY:
         return "groq"
-    return "whisper"
+    return None
+
+
+def cascade_stt(engine: Engine) -> str:
+    """STT of a cascade engine. The full-cloud engine never uses a local one (no GPU)."""
+    stt = CASCADE_STT if CASCADE_STT != "auto" else (_cloud_stt() or "whisper")
+    if engine.tts == "elevenlabs" and stt in LOCAL_STTS:
+        return _cloud_stt() or stt
+    return stt
 
 
 def gpu_needs(engine: Engine) -> frozenset[str]:
@@ -69,8 +75,8 @@ def gpu_needs(engine: Engine) -> frozenset[str]:
     if engine.tts not in CASCADE_TTS:
         return frozenset()
     needs = {engine.tts} if engine.tts in SIDECARS else set()
-    if cascade_stt() in LOCAL_STTS:
-        needs.add(cascade_stt())
+    if cascade_stt(engine) in LOCAL_STTS:
+        needs.add(cascade_stt(engine))
     return frozenset(needs)
 
 
@@ -82,14 +88,14 @@ def _llm_problem() -> str | None:
     return f"неизвестный CLOUD_LLM_PROVIDER={CLOUD_LLM_PROVIDER}"
 
 
-def _stt_problem(full_cloud: bool) -> str | None:
-    stt = cascade_stt()
+def _stt_problem(engine: Engine) -> str | None:
+    stt = cascade_stt(engine)
     if stt == "deepgram":
         return None if DEEPGRAM_API_KEY else "нужен DEEPGRAM_API_KEY"
     if stt == "groq":
         return None if GROQ_API_KEY else "нужен GROQ_API_KEY"
     if stt in LOCAL_STTS:
-        return "нужен DEEPGRAM_API_KEY или GROQ_API_KEY" if full_cloud else None
+        return "нужен DEEPGRAM_API_KEY или GROQ_API_KEY" if engine.tts == "elevenlabs" else None
     return f"неизвестный CASCADE_STT={stt}"
 
 
@@ -104,7 +110,7 @@ async def _sidecar_up(url: str) -> bool:
 
 async def problem(engine: Engine) -> str | None:
     """Why `engine` can't take a call right now (shown in the UI), or None if it can."""
-    stt = LOCAL_STT if engine.id == "local" else cascade_stt()
+    stt = LOCAL_STT if engine.id == "local" else cascade_stt(engine)
     if stt == "gigaam" and engine.tts in CASCADE_TTS | {"piper"} and not await _sidecar_up(SIDECARS["gigaam"]):
         return "не запущен контейнер stt-gigaam (профиль gigaam)"
     if engine.id == "local":
@@ -115,7 +121,7 @@ async def problem(engine: Engine) -> str | None:
         return "нужны ELEVENLABS_API_KEY и ELEVENLABS_VOICE_ID"
     if engine.tts == "fish" and not FISH_API_KEY:
         return "нужен FISH_API_KEY"
-    if reason := _llm_problem() or _stt_problem(full_cloud=engine.tts == "elevenlabs"):
+    if reason := _llm_problem() or _stt_problem(engine):
         return reason
     if engine.tts in SIDECARS and not await _sidecar_up(SIDECARS[engine.tts]):
         return f"не запущен контейнер tts-{engine.tts} (профиль {engine.tts})"

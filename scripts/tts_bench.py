@@ -211,7 +211,7 @@ async def main() -> None:
                     except Exception as e:
                         stats["errors"] += 1
                         print(f"  {name} #{i + 1} FAILED: {str(e)[:200]}")
-                        if "429" in str(e):  # quota exhausted: the rest would fail the same way
+                        if "429" in str(e) or "402" in str(e):  # quota or plan: the rest would fail the same way
                             break
                         continue
                     seconds = len(pcm) / 2 / RATE

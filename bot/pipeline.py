@@ -182,9 +182,9 @@ def build_gemini(persona: Persona):
     return [user_agg, llm], user_agg, assistant_agg, context
 
 
-def _cascade_stt():
+def _cascade_stt(engine: Engine):
     """Returns (stt service, user aggregator params) for the configured cascade STT."""
-    stt = engines.cascade_stt()
+    stt = engines.cascade_stt(engine)
     if stt == "deepgram":
         service = DeepgramFluxSTTService(
             api_key=engines.DEEPGRAM_API_KEY,
@@ -250,14 +250,15 @@ def _cascade_tts(engine: Engine, persona: Persona):
         return FishAudioTTSService(
             api_key=engines.FISH_API_KEY,
             sample_rate=CASCADE_OUTPUT_SAMPLE_RATE,
-            settings=FishAudioTTSService.Settings(model=FISH_MODEL, voice=engines.FISH_REFERENCE_ID),
+            # Fish rejects an empty reference_id; None means its default voice.
+            settings=FishAudioTTSService.Settings(model=FISH_MODEL, voice=engines.FISH_REFERENCE_ID or None),
         )
     return SidecarTTSService(base_url=engines.SIDECARS[engine.tts], voice=persona.id)
 
 
 def build_cascade(persona: Persona, engine: Engine):
     """STT -> cloud LLM -> expressive TTS; same return shape as build_local."""
-    stt, user_params = _cascade_stt()
+    stt, user_params = _cascade_stt(engine)
     llm = _cascade_llm(persona.prompt + EMOTION_PROMPT)
     tts = _cascade_tts(engine, persona)
     context = LLMContext()
