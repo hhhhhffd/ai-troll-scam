@@ -1,19 +1,5 @@
-export interface Persona {
-  id: string
-  name: string
-  emoji: string
-  description: string
-}
-
-export interface Engine {
-  id: string
-  name: string
-  available: boolean
-  note?: string
-}
-
 export type ServerMessage =
-  | { type: 'ready'; sampleRate: number; persona: string }
+  | { type: 'ready'; sampleRate: number }
   | { type: 'busy' }
   | { type: 'unauthorized' }
   | { type: 'error'; message: string }
@@ -22,13 +8,3 @@ export type ServerMessage =
   | { type: 'state'; state: 'speaking' | 'listening' }
   | { type: 'interrupt' }
   | { type: 'end'; reason: 'max_duration' | 'idle' }
-
-export type EndReason = 'hangup' | 'max_duration' | 'idle' | 'lost'
-
-export interface CallRecord {
-  durationSec: number
-  personaId: string
-  personaName: string
-  engine?: string
-  date: string
-}

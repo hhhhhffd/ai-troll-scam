@@ -1,107 +1,75 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react'
 import { CallSession, MicError } from './call'
-import { loadEngine, loadPhoneVoice, loadRecords, resolveKey, saveEngine, savePhoneVoice, saveRecord } from './storage'
+import { loadPhoneVoice, resolveKey } from './storage'
 import { emptyTranscript, transcriptReducer } from './transcript'
-import type { CallRecord, Engine, EndReason, Persona, ServerMessage } from './types'
-import { CallScreen, DialingScreen, EndedScreen, IdleScreen, MessageScreen } from './screens'
+import type { ServerMessage } from './types'
 
-const FALLBACK_PERSONAS: Persona[] = [
-  {
-    id: 'granny',
-    name: 'Валентина Петровна',
-    emoji: '👵',
-    description: 'Ей 74 года, она никуда не торопится.',
-  },
-]
-
-const FALLBACK_ENGINES: Engine[] = [
-  { id: 'local', name: 'Локально (Whisper + Qwen + Piper)', available: true },
-]
+const FALLBACK_NAME = 'Бабушка'
+const ENDED_SHOW_MS = 2000
 
 type Phase =
-  | { name: 'idle' }
+  | { name: 'idle'; note?: string }
   | { name: 'dialing' }
   | { name: 'call' }
-  | { name: 'busy' }
-  | { name: 'unauthorized' }
-  | { name: 'error'; text: string }
-  | { name: 'server_error'; text: string }
-  | { name: 'ended'; reason: EndReason; durationSec: number }
+  | { name: 'ended'; durationSec: number }
 
-function buildUrl(key: string, personaId: string, engineId: string): string {
+function buildUrl(key: string): string {
   const scheme = location.protocol === 'https:' ? 'wss' : 'ws'
-  const q = new URLSearchParams({ persona: personaId, engine: engineId })
-  if (key) q.set('key', key)
-  return `${scheme}://${location.host}/ws/call?${q}`
+  const q = key ? `?${new URLSearchParams({ key })}` : ''
+  return `${scheme}://${location.host}/ws/call${q}`
+}
+
+function formatTime(sec: number): string {
+  const m = Math.floor(sec / 60)
+  return `${m}:${String(sec % 60).padStart(2, '0')}`
+}
+
+function PhoneIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        fill="currentColor"
+        d="M6.6 10.8a15.1 15.1 0 0 0 6.6 6.6l2.2-2.2a1 1 0 0 1 1-.25c1.1.37 2.3.57 3.6.57a1 1 0 0 1 1 1V20a1 1 0 0 1-1 1A17 17 0 0 1 3 4a1 1 0 0 1 1-1h3.5a1 1 0 0 1 1 1c0 1.25.2 2.45.57 3.6a1 1 0 0 1-.25 1z"
+      />
+    </svg>
+  )
+}
+
+function Timer({ startedAt }: { startedAt: number }) {
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 500)
+    return () => clearInterval(id)
+  }, [])
+  return <>{formatTime(Math.max(0, Math.floor((now - startedAt) / 1000)))}</>
 }
 
 export function App() {
   const [phase, setPhase] = useState<Phase>({ name: 'idle' })
-  const [personas, setPersonas] = useState<Persona[]>(FALLBACK_PERSONAS)
-  const [personasError, setPersonasError] = useState(false)
-  const [personaId, setPersonaId] = useState(FALLBACK_PERSONAS[0].id)
-  const [engines, setEngines] = useState<Engine[]>(FALLBACK_ENGINES)
-  const [engineId, setEngineId] = useState(() => loadEngine() ?? FALLBACK_ENGINES[0].id)
-  const [phoneVoice, setPhoneVoice] = useState(() => loadPhoneVoice())
-  const [records, setRecords] = useState<CallRecord[]>(() => loadRecords())
+  const [name, setName] = useState(FALLBACK_NAME)
   const [transcript, dispatch] = useReducer(transcriptReducer, emptyTranscript)
   const [speaking, setSpeaking] = useState(false)
-  const [level, setLevel] = useState(0)
   const [startedAt, setStartedAt] = useState<number | null>(null)
 
   const sessionRef = useRef<CallSession | null>(null)
   const startedAtRef = useRef<number | null>(null)
-  const personaRef = useRef<Persona>(FALLBACK_PERSONAS[0])
-  const engineRef = useRef(engineId)
   const key = useRef(resolveKey()).current
 
   useEffect(() => {
     const ctrl = new AbortController()
-    fetch('/api/personas', { signal: ctrl.signal })
+    fetch('/api/persona', { signal: ctrl.signal })
       .then((r) => {
         if (!r.ok) throw new Error(String(r.status))
-        return r.json() as Promise<Persona[]>
+        return r.json() as Promise<{ name?: string }>
       })
-      .then((list) => {
-        if (!Array.isArray(list) || list.length === 0) throw new Error('empty')
-        setPersonas(list)
-        setPersonaId((cur) => (list.some((p) => p.id === cur) ? cur : list[0].id))
+      .then((p) => {
+        if (p.name) setName(p.name)
       })
       .catch(() => {
-        if (!ctrl.signal.aborted) setPersonasError(true)
+        // keep the fallback name
       })
     return () => ctrl.abort()
   }, [])
-
-  useEffect(() => {
-    const ctrl = new AbortController()
-    fetch('/api/engines', { signal: ctrl.signal })
-      .then((r) => {
-        if (!r.ok) throw new Error(String(r.status))
-        return r.json() as Promise<Engine[]>
-      })
-      .then((list) => {
-        if (!Array.isArray(list) || list.length === 0) throw new Error('empty')
-        setEngines(list)
-        // A saved engine that is gone or unavailable (e.g. the key was removed) falls back.
-        setEngineId((cur) => (list.some((e) => e.id === cur && e.available) ? cur : 'local'))
-      })
-      .catch(() => {
-        // keep the local-only fallback
-      })
-    return () => ctrl.abort()
-  }, [])
-
-  const pickEngine = (id: string) => {
-    setEngineId(id)
-    saveEngine(id)
-  }
-
-  const pickPhoneVoice = (on: boolean) => {
-    setPhoneVoice(on)
-    savePhoneVoice(on)
-    sessionRef.current?.setPhoneVoice(on)
-  }
 
   const teardown = useCallback(() => {
     sessionRef.current?.dispose()
@@ -109,102 +77,86 @@ export function App() {
     startedAtRef.current = null
     setStartedAt(null)
     setSpeaking(false)
-    setLevel(0)
   }, [])
 
   useEffect(() => teardown, [teardown])
 
-  const finish = useCallback(
-    (reason: EndReason) => {
-      const began = startedAtRef.current
-      const durationSec = began === null ? 0 : Math.floor((Date.now() - began) / 1000)
+  // The "call ended" screen is shown briefly, then the idle screen returns.
+  useEffect(() => {
+    if (phase.name !== 'ended') return
+    const id = setTimeout(() => setPhase({ name: 'idle' }), ENDED_SHOW_MS)
+    return () => clearTimeout(id)
+  }, [phase.name])
+
+  const finish = useCallback(() => {
+    const began = startedAtRef.current
+    const durationSec = began === null ? 0 : Math.floor((Date.now() - began) / 1000)
+    teardown()
+    setPhase({ name: 'ended', durationSec })
+  }, [teardown])
+
+  const fail = useCallback(
+    (note: string) => {
       teardown()
-      if (began !== null && durationSec > 0) {
-        const p = personaRef.current
-        setRecords(
-          saveRecord({
-            durationSec,
-            personaId: p.id,
-            personaName: p.name,
-            engine: engineRef.current,
-            date: new Date().toISOString(),
-          }),
-        )
-      }
-      setPhase({ name: 'ended', reason, durationSec })
+      setPhase({ name: 'idle', note })
     },
     [teardown],
   )
 
   const startCall = () => {
-    const persona = personas.find((p) => p.id === personaId) ?? personas[0]
-    personaRef.current = persona
-    engineRef.current = engineId
     dispatch({ type: 'reset' })
     setPhase({ name: 'dialing' })
 
-    let endReason: EndReason | null = null
-    const session = new CallSession({
-      onLevel: setLevel,
-      onMessage: (msg: ServerMessage) => {
-        switch (msg.type) {
-          case 'ready': {
-            const now = Date.now()
-            startedAtRef.current = now
-            setStartedAt(now)
-            setPhase({ name: 'call' })
-            break
+    let ended = false
+    const session = new CallSession(
+      {
+        onLevel: () => {},
+        onMessage: (msg: ServerMessage) => {
+          switch (msg.type) {
+            case 'ready': {
+              const now = Date.now()
+              startedAtRef.current = now
+              setStartedAt(now)
+              setPhase({ name: 'call' })
+              break
+            }
+            case 'busy':
+              fail('Линия занята, попробуйте позже')
+              break
+            case 'unauthorized':
+              fail('Нет доступа: нужна ссылка с ключом')
+              break
+            case 'error':
+              fail(msg.message)
+              break
+            case 'transcript':
+              dispatch({ type: 'user', text: msg.text })
+              break
+            case 'bot_text':
+              dispatch({ type: 'bot_text', text: msg.text })
+              break
+            case 'state':
+              setSpeaking(msg.state === 'speaking')
+              if (msg.state === 'listening') dispatch({ type: 'listening' })
+              break
+            case 'interrupt':
+              dispatch({ type: 'interrupt' })
+              break
+            case 'end':
+              ended = true
+              break
           }
-          case 'busy':
-            teardown()
-            setPhase({ name: 'busy' })
-            break
-          case 'unauthorized':
-            teardown()
-            setPhase({ name: 'unauthorized' })
-            break
-          case 'error':
-            teardown()
-            setPhase({ name: 'server_error', text: msg.message })
-            break
-          case 'transcript':
-            dispatch({ type: 'user', text: msg.text })
-            break
-          case 'bot_text':
-            dispatch({ type: 'bot_text', text: msg.text })
-            break
-          case 'state':
-            setSpeaking(msg.state === 'speaking')
-            if (msg.state === 'listening') dispatch({ type: 'listening' })
-            break
-          case 'interrupt':
-            dispatch({ type: 'interrupt' })
-            break
-          case 'end':
-            endReason = msg.reason
-            break
-        }
+        },
+        onClose: (code) => {
+          if (code === 4409) fail('Линия занята, попробуйте позже')
+          else if (code === 4401) fail('Нет доступа: нужна ссылка с ключом')
+          else if (code === 4400) fail('Сервер отклонил звонок')
+          else if (ended || startedAtRef.current !== null) finish()
+          else fail('Не удалось соединиться')
+        },
       },
-      onClose: (code) => {
-        if (code === 4400) {
-          // The `error` message already set the phase; this covers a lost message.
-          teardown()
-          setPhase((p) =>
-            p.name === 'server_error' ? p : { name: 'server_error', text: 'Сервер отклонил звонок.' },
-          )
-        } else if (code === 4409) {
-          teardown()
-          setPhase({ name: 'busy' })
-        } else if (code === 4401) {
-          teardown()
-          setPhase({ name: 'unauthorized' })
-        } else if (endReason) finish(endReason)
-        else if (startedAtRef.current === null) {
-          teardown()
-          setPhase({ name: 'error', text: 'Не удалось соединиться с сервером.' })
-        } else finish('lost')
-      },
-    }, phoneVoice)
+      loadPhoneVoice(),
+    )
     sessionRef.current = session
 
     void (async () => {
@@ -212,107 +164,70 @@ export function App() {
         await session.prepare()
         await session.playRing()
         if (sessionRef.current !== session) return
-        session.connect(buildUrl(key, persona.id, engineId))
+        session.connect(buildUrl(key))
       } catch (e) {
         if (sessionRef.current !== session) return
-        teardown()
-        setPhase({
-          name: 'error',
-          text: e instanceof MicError ? e.message : 'Не удалось запустить звонок.',
-        })
+        fail(e instanceof MicError ? e.message : 'Не удалось запустить звонок')
       }
     })()
   }
 
   const hangup = () => {
+    if (phase.name === 'dialing') {
+      teardown()
+      setPhase({ name: 'idle' })
+      return
+    }
     sessionRef.current?.hangup()
-    finish('hangup')
+    finish()
   }
 
-  const backToIdle = () => setPhase({ name: 'idle' })
-  const persona = personaRef.current
+  const inCall = phase.name === 'dialing' || phase.name === 'call'
+  const caption = transcript.lines[transcript.lines.length - 1]
+
+  let status: React.ReactNode = ''
+  if (phase.name === 'dialing') status = 'Вызов…'
+  else if (phase.name === 'call' && startedAt !== null) status = <Timer startedAt={startedAt} />
+  else if (phase.name === 'ended')
+    status = `Вызов завершён · ${formatTime(phase.durationSec)}`
+  else if (phase.name === 'idle' && phase.note) status = phase.note
 
   return (
     <main className="phone">
-      {phase.name === 'idle' && (
-        <IdleScreen
-          personas={personas}
-          personaId={personaId}
-          engines={engines}
-          engineId={engineId}
-          onEngine={pickEngine}
-          phoneVoice={phoneVoice}
-          onPhoneVoice={pickPhoneVoice}
-          onPersona={setPersonaId}
-          personasError={personasError}
-          records={records}
-          onCall={startCall}
-        />
-      )}
-      {phase.name === 'dialing' && <DialingScreen persona={persona} onCancel={() => {
-          teardown()
-          backToIdle()
-        }} />}
-      {phase.name === 'call' && (
-        <CallScreen
-          persona={persona}
-          engineName={engines.find((e) => e.id === engineRef.current)?.name}
-          startedAt={startedAt}
-          speaking={speaking}
-          level={level}
-          phoneVoice={phoneVoice}
-          onPhoneVoice={pickPhoneVoice}
-          lines={transcript.lines}
-          onHangup={hangup}
-        />
-      )}
-      {phase.name === 'busy' && (
-        <MessageScreen
-          icon="📵"
-          title="Линия занята"
-          text="Бабушка сейчас разговаривает с другим мошенником. Попробуйте чуть позже."
-          action="Позвонить снова"
-          onAction={startCall}
-          secondary="Назад"
-          onSecondary={backToIdle}
-        />
-      )}
-      {phase.name === 'unauthorized' && (
-        <MessageScreen
-          icon="🔑"
-          title="Нет доступа"
-          text="Откройте ссылку с правильным ключом: адрес сайта должен заканчиваться на ?key=…"
-          action="Назад"
-          onAction={backToIdle}
-        />
-      )}
-      {phase.name === 'server_error' && (
-        <MessageScreen
-          icon="⚠️"
-          title="Звонок отклонён"
-          text={phase.text}
-          action="Назад"
-          onAction={backToIdle}
-        />
-      )}
-      {phase.name === 'error' && (
-        <MessageScreen
-          icon="🎙️"
-          title="Звонок не удался"
-          text={phase.text}
-          action="Назад"
-          onAction={backToIdle}
-        />
-      )}
-      {phase.name === 'ended' && (
-        <EndedScreen
-          persona={persona}
-          reason={phase.reason}
-          durationSec={phase.durationSec}
-          onAgain={startCall}
-          onBack={backToIdle}
-        />
-      )}
+      <div className="blobs" aria-hidden="true">
+        <i className="blob b1" />
+        <i className="blob b2" />
+        <i className="blob b3" />
+      </div>
+
+      <section className="caller">
+        <div className={`avatar${speaking && phase.name === 'call' ? ' speaking' : ''}`}>
+          <span aria-hidden="true">👵</span>
+        </div>
+        <h1>{name}</h1>
+        <p className="status" aria-live="polite">
+          {status}
+          {phase.name === 'idle' && !phase.note && (
+            <span className="hint">Позвоните бабушке и попробуйте выманить код из SMS</span>
+          )}
+        </p>
+      </section>
+
+      <p className="caption" aria-live="off">
+        {phase.name === 'call' && caption ? caption.text : ''}
+      </p>
+
+      <div className="actions">
+        {inCall ? (
+          <button className="btn hangup" onClick={hangup} aria-label="Сбросить">
+            <PhoneIcon />
+          </button>
+        ) : (
+          <button className="btn call" onClick={startCall} aria-label="Позвонить">
+            <PhoneIcon />
+          </button>
+        )}
+      </div>
     </main>
   )
 }
