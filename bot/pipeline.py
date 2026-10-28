@@ -28,7 +28,6 @@ from pipecat.services.elevenlabs.dialogue.tts import ElevenLabsDialogueTTSServic
 from pipecat.services.fish.tts import FishAudioTTSService
 from pipecat.services.google.gemini_live.llm import GeminiLiveLLMService
 from pipecat.services.google.llm import GoogleLLMService
-from pipecat.services.groq.llm import GroqLLMService
 from pipecat.services.groq.stt import GroqSTTService
 from pipecat.services.ollama.llm import OLLamaLLMService
 from pipecat.transcriptions.language import Language
@@ -42,6 +41,7 @@ from engines import Engine
 from personas import Persona
 from services.call_io import INPUT_SAMPLE_RATE, RawPcmSerializer, UiEventsProcessor
 from services.gigaam_stt import GigaamSTTService
+from services.groq_fallback_llm import GroqFallbackLLMService
 from services.local_tts import SidecarTTSService
 from services.shared_models import SharedPiperTTSService, SharedWhisperSTTService
 from services.text_tags import strip_angle_tags, strip_tags
@@ -55,9 +55,15 @@ LLM_HISTORY_MESSAGES = int(os.environ.get("LLM_HISTORY_MESSAGES", "16"))
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.8-live")
 GEMINI_TEXT_MODEL = os.environ.get("GEMINI_TEXT_MODEL", "gemini-3.5-flash")
+# Comma-separated fallback list "model[:reasoning_effort]"; the effort defaults to GROQ_REASONING_EFFORT.
 GROQ_MODEL = os.environ.get("GROQ_MODEL", "qwen/qwen3.8-27b")
 # "none" for Qwen; gpt-oss only accepts low/medium/high.
 GROQ_REASONING_EFFORT = os.environ.get("GROQ_REASONING_EFFORT", "none")
+GROQ_MODELS = [
+    (name, effort or GROQ_REASONING_EFFORT)
+    for name, _, effort in (item.strip().partition(":") for item in GROQ_MODEL.split(","))
+    if name
+]
 GROQ_STT_MODEL = os.environ.get("GROQ_STT_MODEL", "whisper-large-v3-turbo")
 DEEPGRAM_MODEL = os.environ.get("DEEPGRAM_MODEL", "flux-general-multi")
 ELEVENLABS_MODEL = os.environ.get("ELEVENLABS_MODEL", "eleven_v4_turbo")
@@ -226,16 +232,19 @@ def _cascade_stt(engine: Engine):
     )
 
 
-def _cascade_llm(prompt: str):
+def _cascade_llm(prompt: str, engine: Engine):
     if engines.CLOUD_LLM_PROVIDER == "groq":
-        return GroqLLMService(
+        local = engines.local_llm_fallback(engine)
+        return GroqFallbackLLMService(
             api_key=engines.GROQ_API_KEY,
-            settings=GroqLLMService.Settings(
-                model=GROQ_MODEL,
+            models=GROQ_MODELS,
+            local_base_url=LLM_BASE_URL if local else None,
+            local_model=LLM_MODEL if local else None,
+            settings=GroqFallbackLLMService.Settings(
+                model=GROQ_MODELS[0][0],
                 system_instruction=prompt,
                 temperature=LLM_TEMPERATURE,
                 max_tokens=CLOUD_LLM_MAX_TOKENS,
-                extra={"reasoning_effort": GROQ_REASONING_EFFORT},
             ),
         )
     return GoogleLLMService(
@@ -276,7 +285,7 @@ def build_cascade(persona: Persona, engine: Engine):
     """STT -> cloud LLM -> expressive TTS; same return shape as build_local."""
     stt, user_params = _cascade_stt(engine)
     emotion_prompt = ELEVENLABS_EMOTION_PROMPT if engine.tts == "elevenlabs" else EMOTION_PROMPT
-    llm = _cascade_llm(persona.prompt + emotion_prompt)
+    llm = _cascade_llm(persona.prompt + emotion_prompt, engine)
     tts = _cascade_tts(engine, persona)
     context = LLMContext()
     user_agg, assistant_agg = LLMContextAggregatorPair(context, user_params=user_params)

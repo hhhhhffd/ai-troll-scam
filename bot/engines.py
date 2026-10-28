@@ -23,6 +23,9 @@ CASCADE_STT = os.environ.get("CASCADE_STT", "auto")
 # STT of the local engine: whisper | gigaam
 LOCAL_STT = os.environ.get("LOCAL_STT", "whisper")
 CLOUD_LLM_PROVIDER = os.environ.get("CLOUD_LLM_PROVIDER", "gemini")
+# 1 = the local Ollama model answers when every Groq model is rate-limited; it is then kept on the GPU
+# during cascade calls. Not with Higgs: both don't fit in 12 GB.
+CLOUD_LLM_LOCAL_FALLBACK = os.environ.get("CLOUD_LLM_LOCAL_FALLBACK", "0") == "1"
 
 # GPU sidecars (tts/CONTRACT.md control endpoints), by GPU resource name.
 SIDECARS = {
@@ -67,6 +70,15 @@ def cascade_stt(engine: Engine) -> str:
     return stt
 
 
+def local_llm_fallback(engine: Engine) -> bool:
+    return (
+        CLOUD_LLM_LOCAL_FALLBACK
+        and CLOUD_LLM_PROVIDER == "groq"
+        and engine.tts in CASCADE_TTS
+        and engine.tts != "higgs"
+    )
+
+
 def gpu_needs(engine: Engine) -> frozenset[str]:
     """GPU resources (see services/gpu.py) that must be resident during a call on `engine`."""
     if engine.id == "local":
@@ -76,6 +88,8 @@ def gpu_needs(engine: Engine) -> frozenset[str]:
     needs = {engine.tts} if engine.tts in SIDECARS else set()
     if cascade_stt(engine) in LOCAL_STTS:
         needs.add(cascade_stt(engine))
+    if local_llm_fallback(engine):
+        needs.add("ollama")
     return frozenset(needs)
 
 
