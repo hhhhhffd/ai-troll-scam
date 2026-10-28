@@ -89,6 +89,9 @@ h2 { font-size: 20px; margin: 0; }
 .engine small, .engine-tag { color: var(--muted); font-size: 12px; }
 .engine:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
 
+.voice-toggle { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.voice-toggle .engine { text-align: center; }
+
 .personas { display: grid; gap: 10px; }
 
 .persona {

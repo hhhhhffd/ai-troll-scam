@@ -3,6 +3,7 @@ import type { CallRecord } from './types'
 const KEY_STORAGE = 'troll.key'
 const RECORDS_STORAGE = 'troll.records'
 const ENGINE_STORAGE = 'troll.engine'
+const PHONE_VOICE_STORAGE = 'troll.phoneVoice'
 const MAX_RECORDS = 10
 
 export function resolveKey(): string {
@@ -59,6 +60,23 @@ export function loadEngine(): string | null {
 export function saveEngine(id: string): void {
   try {
     localStorage.setItem(ENGINE_STORAGE, id)
+  } catch {
+    // storage unavailable: choice lives only for this page session
+  }
+}
+
+/** Phone-line voice filter; on by default, only an explicit '0' turns it off. */
+export function loadPhoneVoice(): boolean {
+  try {
+    return localStorage.getItem(PHONE_VOICE_STORAGE) !== '0'
+  } catch {
+    return true
+  }
+}
+
+export function savePhoneVoice(on: boolean): void {
+  try {
+    localStorage.setItem(PHONE_VOICE_STORAGE, on ? '1' : '0')
   } catch {
     // storage unavailable: choice lives only for this page session
   }

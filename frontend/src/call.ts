@@ -12,8 +12,22 @@ const RING_BEEP_SEC = 0.4
 const RING_GAP_SEC = 0.25
 const RING_BEEPS = 2
 
+/** Mild tanh waveshaper, normalised so full scale stays full scale. */
+function softClipCurve(drive: number): Float32Array<ArrayBuffer> {
+  const curve = new Float32Array(1024)
+  const norm = Math.tanh(drive)
+  for (let i = 0; i < curve.length; i++) {
+    curve[i] = Math.tanh((i / (curve.length - 1) * 2 - 1) * drive) / norm
+  }
+  return curve
+}
+
 export class CallSession {
   private ctx: AudioContext
+  private voiceBus!: GainNode
+  private dryGain!: GainNode
+  private wetGain!: GainNode
+  private phoneNodes!: AudioNode[]
   private stream: MediaStream | null = null
   private micNode: AudioWorkletNode | null = null
   private micSource: MediaStreamAudioSourceNode | null = null
@@ -26,9 +40,59 @@ export class CallSession {
   private disposed = false
 
   /** Must be constructed synchronously inside the click handler (iOS autoplay policy). */
-  constructor(private handlers: CallHandlers) {
+  constructor(
+    private handlers: CallHandlers,
+    phoneVoice = false,
+  ) {
     this.ctx = new AudioContext()
     void this.ctx.resume()
+    this.buildVoiceChain(phoneVoice)
+  }
+
+  /**
+   * AI voice goes through voiceBus -> (dry | phone-line chain) -> speakers. The mic path is
+   * separate, so the filter cannot touch what is sent to STT. Ring tone bypasses it too.
+   */
+  private buildVoiceChain(phoneVoice: boolean): void {
+    const ctx = this.ctx
+    const biquad = (o: BiquadFilterOptions) => new BiquadFilterNode(ctx, o)
+    this.voiceBus = new GainNode(ctx)
+    this.dryGain = new GainNode(ctx, { gain: phoneVoice ? 0 : 1 })
+    this.wetGain = new GainNode(ctx, { gain: phoneVoice ? 1 : 0 })
+
+    // Two cascaded 2nd-order sections per edge: 24 dB/oct, close to a telephone band 300-3400 Hz.
+    const chain: AudioNode[] = [
+      biquad({ type: 'highpass', frequency: 300, Q: Math.SQRT1_2 }),
+      biquad({ type: 'highpass', frequency: 300, Q: Math.SQRT1_2 }),
+      biquad({ type: 'lowpass', frequency: 3400, Q: Math.SQRT1_2 }),
+      biquad({ type: 'lowpass', frequency: 3400, Q: Math.SQRT1_2 }),
+      // Small presence bump keeps consonants intelligible in the narrow band.
+      biquad({ type: 'peaking', frequency: 1900, Q: 0.8, gain: 2.5 }),
+      new DynamicsCompressorNode(ctx, {
+        threshold: -24,
+        knee: 12,
+        ratio: 3,
+        attack: 0.005,
+        release: 0.15,
+      }),
+      new WaveShaperNode(ctx, { curve: softClipCurve(1.5), oversample: 'none' }),
+      new GainNode(ctx, { gain: 1.25 }), // makeup for the band-limiting and compression
+    ]
+    this.phoneNodes = chain
+    this.voiceBus.connect(this.dryGain).connect(ctx.destination)
+    let prev: AudioNode = this.voiceBus
+    for (const node of chain) {
+      prev.connect(node)
+      prev = node
+    }
+    prev.connect(this.wetGain).connect(ctx.destination)
+  }
+
+  /** Switch between original and phone-line voice; ~30 ms crossfade, safe mid-call. */
+  setPhoneVoice(on: boolean): void {
+    const t = this.ctx.currentTime
+    this.dryGain.gain.setTargetAtTime(on ? 0 : 1, t, 0.01)
+    this.wetGain.gain.setTargetAtTime(on ? 1 : 0, t, 0.01)
   }
 
   async prepare(): Promise<void> {
@@ -166,7 +230,7 @@ export class CallSession {
 
     const src = this.ctx.createBufferSource()
     src.buffer = buffer
-    src.connect(this.ctx.destination)
+    src.connect(this.voiceBus)
     // Small lead on (re)start absorbs network jitter; afterwards chunks chain gaplessly.
     const startAt = Math.max(this.cursor, this.ctx.currentTime + 0.06)
     src.start(startAt)
@@ -204,6 +268,10 @@ export class CallSession {
     this.micSource?.disconnect()
     this.micFilter?.disconnect()
     this.micNode?.disconnect()
+    this.voiceBus.disconnect()
+    this.dryGain.disconnect()
+    this.wetGain.disconnect()
+    this.phoneNodes.forEach((n) => n.disconnect())
     this.stream?.getTracks().forEach((t) => t.stop())
     void this.ctx.close()
   }

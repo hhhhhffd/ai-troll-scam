@@ -52,12 +52,36 @@ interface IdleProps {
   engines: Engine[]
   engineId: string
   onEngine(id: string): void
+  phoneVoice: boolean
+  onPhoneVoice(on: boolean): void
   personas: Persona[]
   personaId: string
   onPersona(id: string): void
   personasError: boolean
   records: CallRecord[]
   onCall(): void
+}
+
+function VoiceToggle(p: { phoneVoice: boolean; onChange(on: boolean): void }) {
+  return (
+    <div className="voice-toggle" role="radiogroup" aria-label="Звук голоса">
+      {[
+        { on: false, label: 'Оригинальный голос' },
+        { on: true, label: 'Телефонный голос' },
+      ].map((o) => (
+        <button
+          key={String(o.on)}
+          type="button"
+          role="radio"
+          aria-checked={o.on === p.phoneVoice}
+          className="engine"
+          onClick={() => p.onChange(o.on)}
+        >
+          <strong>{o.label}</strong>
+        </button>
+      ))}
+    </div>
+  )
 }
 
 export function IdleScreen(p: IdleProps) {
@@ -91,6 +115,8 @@ export function IdleScreen(p: IdleProps) {
           </button>
         ))}
       </div>
+
+      <VoiceToggle phoneVoice={p.phoneVoice} onChange={p.onPhoneVoice} />
 
       <div className="personas" role="radiogroup" aria-label="Кому звонить">
         {p.personas.map((x) => (
@@ -167,6 +193,8 @@ interface CallProps {
   speaking: boolean
   level: number
   lines: Line[]
+  phoneVoice: boolean
+  onPhoneVoice(on: boolean): void
   onHangup(): void
 }
 
@@ -207,6 +235,8 @@ export function CallScreen(p: CallProps) {
           </div>
         ))}
       </div>
+
+      <VoiceToggle phoneVoice={p.phoneVoice} onChange={p.onPhoneVoice} />
 
       <button type="button" className="btn hang" onClick={p.onHangup}>
         Положить трубку

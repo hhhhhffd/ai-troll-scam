@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react'
 import { CallSession, MicError } from './call'
-import { loadEngine, loadRecords, resolveKey, saveEngine, saveRecord } from './storage'
+import { loadEngine, loadPhoneVoice, loadRecords, resolveKey, saveEngine, savePhoneVoice, saveRecord } from './storage'
 import { emptyTranscript, transcriptReducer } from './transcript'
 import type { CallRecord, Engine, EndReason, Persona, ServerMessage } from './types'
 import { CallScreen, DialingScreen, EndedScreen, IdleScreen, MessageScreen } from './screens'
@@ -42,6 +42,7 @@ export function App() {
   const [personaId, setPersonaId] = useState(FALLBACK_PERSONAS[0].id)
   const [engines, setEngines] = useState<Engine[]>(FALLBACK_ENGINES)
   const [engineId, setEngineId] = useState(() => loadEngine() ?? FALLBACK_ENGINES[0].id)
+  const [phoneVoice, setPhoneVoice] = useState(() => loadPhoneVoice())
   const [records, setRecords] = useState<CallRecord[]>(() => loadRecords())
   const [transcript, dispatch] = useReducer(transcriptReducer, emptyTranscript)
   const [speaking, setSpeaking] = useState(false)
@@ -94,6 +95,12 @@ export function App() {
   const pickEngine = (id: string) => {
     setEngineId(id)
     saveEngine(id)
+  }
+
+  const pickPhoneVoice = (on: boolean) => {
+    setPhoneVoice(on)
+    savePhoneVoice(on)
+    sessionRef.current?.setPhoneVoice(on)
   }
 
   const teardown = useCallback(() => {
@@ -197,7 +204,7 @@ export function App() {
           setPhase({ name: 'error', text: 'Не удалось соединиться с сервером.' })
         } else finish('lost')
       },
-    })
+    }, phoneVoice)
     sessionRef.current = session
 
     void (async () => {
@@ -234,6 +241,8 @@ export function App() {
           engines={engines}
           engineId={engineId}
           onEngine={pickEngine}
+          phoneVoice={phoneVoice}
+          onPhoneVoice={pickPhoneVoice}
           onPersona={setPersonaId}
           personasError={personasError}
           records={records}
@@ -251,6 +260,8 @@ export function App() {
           startedAt={startedAt}
           speaking={speaking}
           level={level}
+          phoneVoice={phoneVoice}
+          onPhoneVoice={pickPhoneVoice}
           lines={transcript.lines}
           onHangup={hangup}
         />
