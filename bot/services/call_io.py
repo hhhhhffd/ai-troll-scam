@@ -1,7 +1,6 @@
 """Wire format of /ws/call (see PROTOCOL.md): raw PCM serializer and a bridge for UI events."""
 
 import json
-import re
 
 from pipecat.frames.frames import (
     BotStartedSpeakingFrame,
@@ -17,10 +16,9 @@ from pipecat.frames.frames import (
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 from pipecat.serializers.base_serializer import FrameSerializer
 
-INPUT_SAMPLE_RATE = 16000
+from services.text_tags import TagStreamStripper
 
-# Emotion tags of expressive TTS engines ("[sighs]", "<|emotion:anger|>") are acted, not shown.
-_TAG_RE = re.compile(r"\[[^\]]*\]\s*|<\|[^|]*\|>\s*")
+INPUT_SAMPLE_RATE = 16000
 
 
 class RawPcmSerializer(FrameSerializer):
@@ -59,17 +57,25 @@ class UiEventsProcessor(FrameProcessor):
     upstream from the output transport and pass through here on their way up.
     """
 
+    def __init__(self):
+        super().__init__()
+        # Emotion tags of expressive TTS ("[sighs]") are acted, not shown; one may span word frames.
+        self._tags = TagStreamStripper()
+
     async def process_frame(self, frame: Frame, direction: FrameDirection):
         await super().process_frame(frame, direction)
         await self.push_frame(frame, direction)
 
         if direction == FrameDirection.DOWNSTREAM and isinstance(frame, TTSTextFrame):
-            text = _TAG_RE.sub("", frame.text)
+            text = self._tags.feed(frame.text)
             if text:
                 await self._send({"type": "bot_text", "text": text})
+        elif isinstance(frame, InterruptionFrame):
+            self._tags.reset()
         elif isinstance(frame, BotStartedSpeakingFrame):
             await self._send({"type": "state", "state": "speaking"})
         elif isinstance(frame, BotStoppedSpeakingFrame):
+            self._tags.reset()
             await self._send({"type": "state", "state": "listening"})
 
     async def _send(self, message: dict):

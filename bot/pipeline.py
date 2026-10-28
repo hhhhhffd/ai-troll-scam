@@ -44,6 +44,7 @@ from services.call_io import INPUT_SAMPLE_RATE, RawPcmSerializer, UiEventsProces
 from services.gigaam_stt import GigaamSTTService
 from services.local_tts import SidecarTTSService
 from services.shared_models import SharedPiperTTSService, SharedWhisperSTTService
+from services.text_tags import strip_angle_tags, strip_tags
 
 MODELS_DIR = Path(os.environ.get("MODELS_DIR", "/models"))
 LLM_BASE_URL = os.environ.get("LLM_BASE_URL", "http://llm:11434/v1")
@@ -77,6 +78,12 @@ EMOTION_PROMPT = """
 
 Голос. Твои реплики озвучивает выразительный синтез речи. Перед фразой, где интонация действительно меняется, можно поставить один тег эмоции в квадратных скобках, только из этого списка: [calm] [warm] [irritated] [angry] [laughs] [sighs] [confused] [sad] [surprised]. Пример: «[irritated] Так, подождите. Кто вы такой?». Ставь теги редко и только по поводу, без тега фраза звучит спокойно. Никаких других скобок и ремарок."""
 
+# Eleven v4 acts inline audio tags in square brackets; it reads anything else in brackets or <> aloud.
+ELEVENLABS_EMOTION_PROMPT = """
+
+Голос. Твои реплики озвучивает выразительный синтез речи. Перед фразой, где интонация действительно меняется, можно поставить тег в квадратных скобках, только из этого списка: [curious] [confused] [annoyed] [shouts] [whispers] [sighs] [laughs] [thoughtful] [short pause]. Тег описывает, как произнести следующие слова, и сам не произносится. Пример: «[confused] Постойте. Вы сказали, что перевод уже прошёл, а теперь говорите, что только пройдёт. [annoyed] Так какой из двух вариантов?».
+Большинство реплик звучат спокойно и без тегов. Не больше двух тегов на реплику, не ставь тег перед каждой фразой. Тег идёт после причины: сначала звонящий давит или путается, потом ты раздражаешься; [shouts] только как короткая вспышка, дальше возвращайся к обычному тону. Не пиши слова капсом. Никаких других скобок, угловых скобок вроде <кричит>, ремарок и эмодзи."""
+
 # Pause after the user stops talking before the bot answers (latency vs. cutting the user off).
 VAD_STOP_SECS = 0.3
 USER_SPEECH_TIMEOUT = 0.4
@@ -87,9 +94,14 @@ _UNSPEAKABLE_RE = re.compile(r"[^\w\s.,!?;:\-—–…'\"«»()]", re.UNICODE)
 
 
 async def make_speakable(text: str, _text_type: str) -> str:
-    """Strip reasoning blocks, markdown and emoji: Piper would read or choke on them."""
-    text = _THINK_RE.sub("", text)
+    """Strip reasoning blocks, tags, markdown and emoji: Piper would read or choke on them."""
+    text = strip_tags(_THINK_RE.sub("", text))
     return _UNSPEAKABLE_RE.sub("", text).replace("_", " ")
+
+
+async def drop_stage_directions(text: str, _text_type: str) -> str:
+    """Cascade TTS keeps its "[...]" emotion tags but must never receive "<кричит>"-style ones."""
+    return strip_angle_tags(_THINK_RE.sub("", text))
 
 
 async def send_json(websocket: WebSocket, message: dict) -> None:
@@ -245,6 +257,7 @@ def _cascade_tts(engine: Engine, persona: Persona):
             settings=ElevenLabsDialogueTTSService.Settings(
                 model=ELEVENLABS_MODEL, voice=engines.ELEVENLABS_VOICE_ID, language=Language.RU
             ),
+            text_transforms=[("*", drop_stage_directions)],
         )
     if engine.tts == "fish":
         return FishAudioTTSService(
@@ -252,14 +265,18 @@ def _cascade_tts(engine: Engine, persona: Persona):
             sample_rate=CASCADE_OUTPUT_SAMPLE_RATE,
             # Fish rejects an empty reference_id; None means its default voice.
             settings=FishAudioTTSService.Settings(model=FISH_MODEL, voice=engines.FISH_REFERENCE_ID or None),
+            text_transforms=[("*", drop_stage_directions)],
         )
-    return SidecarTTSService(base_url=engines.SIDECARS[engine.tts], voice=persona.id)
+    return SidecarTTSService(
+        base_url=engines.SIDECARS[engine.tts], voice=persona.id, text_transforms=[("*", drop_stage_directions)]
+    )
 
 
 def build_cascade(persona: Persona, engine: Engine):
     """STT -> cloud LLM -> expressive TTS; same return shape as build_local."""
     stt, user_params = _cascade_stt(engine)
-    llm = _cascade_llm(persona.prompt + EMOTION_PROMPT)
+    emotion_prompt = ELEVENLABS_EMOTION_PROMPT if engine.tts == "elevenlabs" else EMOTION_PROMPT
+    llm = _cascade_llm(persona.prompt + emotion_prompt)
     tts = _cascade_tts(engine, persona)
     context = LLMContext()
     user_agg, assistant_agg = LLMContextAggregatorPair(context, user_params=user_params)
