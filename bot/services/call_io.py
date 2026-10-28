@@ -67,7 +67,10 @@ class UiEventsProcessor(FrameProcessor):
         await self.push_frame(frame, direction)
 
         if direction == FrameDirection.DOWNSTREAM and isinstance(frame, TTSTextFrame):
-            text = self._tags.feed(frame.text)
+            # Word-timestamp TTS (ElevenLabs) sends bare words and leaves the spacing to us; the UI
+            # concatenates bot_text as is (and collapses the extra leading/double spaces).
+            chunk = frame.text if frame.includes_inter_frame_spaces else f" {frame.text}"
+            text = self._tags.feed(chunk)
             if text:
                 await self._send({"type": "bot_text", "text": text})
         elif isinstance(frame, InterruptionFrame):
