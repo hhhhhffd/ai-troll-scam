@@ -5,7 +5,7 @@ Generate test utterances (16 kHz WAVs in the bot container's /tmp/u0.wav, /tmp/u
   docker compose exec -T bot python - "Здравствуйте, это Каспи банк." "Назовите код из SMS." < scripts/make_test_speech.py
 
 Usage: test_call.py UTTERANCE.wav [UTTERANCE2.wav ...] [--url ws://localhost:8000/ws/call]
-           [--persona granny] [--engine local|gemini] [--key KEY] [--barge-in] [--save BOT.wav]
+           [--key KEY] [--barge-in] [--save BOT.wav]
 Runs anywhere with `websockets`; e.g. inside the bot container:
   docker compose exec -T bot python - /tmp/u1.wav < scripts/test_call.py
 Each WAV is one turn: it is sent after the bot finished the previous reply.
@@ -48,13 +48,11 @@ async def main() -> None:
     p = argparse.ArgumentParser()
     p.add_argument("wavs", nargs="+")
     p.add_argument("--url", default="ws://localhost:8000/ws/call")
-    p.add_argument("--persona", default="granny")
-    p.add_argument("--engine", default="local")
     p.add_argument("--key", default="")
     p.add_argument("--barge-in", action="store_true")
     p.add_argument("--save", help="write everything the bot said to this WAV file")
     args = p.parse_args()
-    url = f"{args.url}?persona={args.persona}&engine={args.engine}&key={args.key}"
+    url = f"{args.url}?key={args.key}"
 
     # No client pings: the server does not read the socket while it swaps GPU models before `ready`.
     async with websockets.connect(url, ping_interval=None) as ws:
@@ -95,9 +93,8 @@ async def main() -> None:
             await asyncio.sleep(0.2)
         print(f"ready after {time.monotonic() - start:.1f}s")
 
-        # Second concurrent connection must be refused while this call is active. Same engine, so
-        # that if it ever got through it would not swap GPU models under the test.
-        second_url = f"{args.url}?key={args.key}&engine={args.engine}"
+        # Second concurrent connection must be refused while this call is active.
+        second_url = f"{args.url}?key={args.key}"
         async with websockets.connect(second_url, ping_interval=None) as second:
             print("second connection ->", await second.recv())
             try:

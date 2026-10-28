@@ -1,10 +1,6 @@
-# Local GPU sidecars (tts/CONTRACT.md), off unless their profile is enabled (COMPOSE_PROFILES=espeech,gigaam ...).
-include:
-  - tts/espeech/compose.yaml
-  - stt/gigaam/compose.yaml
-
 services:
   llm:
+    # Ollama with the fallback model the bot uses when every Groq model is rate-limited.
     # The host's own Ollama install (Arch, /usr/local) mounted into a tiny base image:
     # the official ollama/ollama image is 8 GB.
     image: ubuntu:24.04
@@ -37,10 +33,6 @@ services:
     env_file: .env
     environment:
       LLM_BASE_URL: http://llm:11434/v1
-      MODELS_DIR: /models
-    volumes:
-      - ${MODELS_HOST_DIR:-./models}:/models
-    gpus: all
     depends_on:
       llm:
         condition: service_healthy
@@ -48,7 +40,7 @@ services:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health', timeout=3)"]
       interval: 10s
       timeout: 5s
-      start_period: 120s
+      start_period: 60s
       retries: 10
 
   web:
