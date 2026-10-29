@@ -24,6 +24,7 @@ from pipecat.services.elevenlabs.dialogue.tts import ElevenLabsDialogueTTSServic
 from pipecat.services.groq.stt import GroqSTTService
 from pipecat.transcriptions.language import Language
 from pipecat.transports.websocket.fastapi import FastAPIWebsocketParams, FastAPIWebsocketTransport
+from pipecat.turns.user_start import MinWordsUserTurnStartStrategy
 from pipecat.turns.user_stop import SpeechTimeoutUserTurnStopStrategy
 from pipecat.turns.user_turn_strategies import UserTurnStrategies
 from pipecat.workers.runner import WorkerRunner
@@ -56,6 +57,9 @@ LLM_MAX_TOKENS = int(os.environ.get("CLOUD_LLM_MAX_TOKENS", "200"))
 HISTORY_MESSAGES = int(os.environ.get("CLOUD_HISTORY_MESSAGES", "30"))
 MAX_CALL_SECONDS = int(os.environ.get("MAX_CALL_SECONDS", "600"))
 IDLE_TIMEOUT_SECONDS = int(os.environ.get("IDLE_TIMEOUT_SECONDS", "60"))
+# Loudness a sound needs to count as speech, 0..1 = -110..-10 LUFS (Pipecat default 0.6 = -50 LUFS).
+# Higher so a TV or people talking across the room is not heard, only a voice close to the mic.
+VAD_MIN_VOLUME = float(os.environ.get("VAD_MIN_VOLUME", "0.75"))
 
 OUTPUT_SAMPLE_RATE = 24000  # ElevenLabs pcm_24000; sent to the client in `ready`
 
@@ -68,6 +72,9 @@ EMOTION_PROMPT = """
 # Pause after the user stops talking before the bot answers (latency vs. cutting the user off).
 VAD_STOP_SECS = 0.3
 USER_SPEECH_TIMEOUT = 0.4
+# While the granny speaks only this many transcribed words interrupt her, so a sneeze or a TV
+# in the background (VAD alone fires on any sound) doesn't cut her off; when she is silent one word starts a turn.
+INTERRUPT_MIN_WORDS = 3
 
 _THINK_RE = re.compile(r"<think>.*?(</think>|$)", re.DOTALL)
 
@@ -122,8 +129,9 @@ def build_services(persona: Persona):
     )
     # Segmented STT: Silero finds the end of speech.
     user_params = LLMUserAggregatorParams(
-        vad_analyzer=SileroVADAnalyzer(params=VADParams(stop_secs=VAD_STOP_SECS)),
+        vad_analyzer=SileroVADAnalyzer(params=VADParams(stop_secs=VAD_STOP_SECS, min_volume=VAD_MIN_VOLUME)),
         user_turn_strategies=UserTurnStrategies(
+            start=[MinWordsUserTurnStartStrategy(min_words=INTERRUPT_MIN_WORDS)],
             stop=[SpeechTimeoutUserTurnStopStrategy(user_speech_timeout=USER_SPEECH_TIMEOUT)]
         ),
         user_idle_timeout=IDLE_TIMEOUT_SECONDS,
